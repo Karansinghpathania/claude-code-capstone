@@ -1,0 +1,71 @@
+{
+  "phases": [
+    {
+      "id": "requirements",
+      "order": 1,
+      "agent": ".claude/commands/requirements.md",
+      "prompt": ".claude/commands/requirements.md",
+      "owns": ["artifacts/requirements.md"]
+    },
+    {
+      "id": "architecture",
+      "order": 2,
+      "agent": ".claude/agents/architecture.md",
+      "prompt": ".claude/commands/architecture.md",
+      "owns": ["artifacts/architecture.md"]
+    },
+    {
+      "id": "design-review",
+      "order": 3,
+      "agent": ".claude/agents/design-review.md",
+      "prompt": ".claude/commands/design-review.md",
+      "owns": ["artifacts/design-review.md"]
+    },
+    {
+      "id": "planning",
+      "order": 4,
+      "agent": ".claude/agents/planning.md",
+      "prompt": ".claude/commands/planning.md",
+      "owns": ["artifacts/implementation-plan.md"]
+    },
+    {
+      "id": "implementation",
+      "order": 5,
+      "agent": ".claude/agents/implementation.md",
+      "prompt": ".claude/commands/implementation.md",
+      "owns": ["todo/__init__.py", "todo/app.py", "todo/cli.py", "tests/test_todo.py"]
+    },
+    {
+      "id": "review",
+      "order": 6,
+      "agent": ".claude/agents/review.md",
+      "prompt": ".claude/commands/review.md",
+      "owns": ["artifacts/review.md"]
+    },
+    {
+      "id": "verify",
+      "order": 7,
+      "agent": ".claude/agents/verify.md",
+      "prompt": ".claude/commands/verify.md",
+      "owns": ["artifacts/verify.md"]
+    },
+    {
+      "id": "pr",
+      "order": 8,
+      "agent": ".claude/agents/pr.md",
+      "prompt": ".claude/commands/pr.md",
+      "owns": ["artifacts/pr.md", "CHANGELOG.md"]
+    }
+  ],
+  "protected": [
+    "sdlc/state.json",
+    "sdlc/audit.log.jsonl",
+    "sdlc/phases.json",
+    "orchestrator.py",
+    "hooks/",
+    ".claude/agents/",
+    ".claude/commands/",
+    ".claude/skills/",
+    ".claude/settings.json"
+  ]
+}

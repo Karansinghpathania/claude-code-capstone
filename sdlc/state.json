@@ -1,0 +1,60 @@
+{
+  "phases": {
+    "requirements": {
+      "status": "ACTIVE",
+      "hashes": {},
+      "approvedBy": null,
+      "approvedAt": null,
+      "rejectionReason": null
+    },
+    "architecture": {
+      "status": "LOCKED",
+      "hashes": {},
+      "approvedBy": null,
+      "approvedAt": null,
+      "rejectionReason": null
+    },
+    "design-review": {
+      "status": "LOCKED",
+      "hashes": {},
+      "approvedBy": null,
+      "approvedAt": null,
+      "rejectionReason": null
+    },
+    "planning": {
+      "status": "LOCKED",
+      "hashes": {},
+      "approvedBy": null,
+      "approvedAt": null,
+      "rejectionReason": null
+    },
+    "implementation": {
+      "status": "LOCKED",
+      "hashes": {},
+      "approvedBy": null,
+      "approvedAt": null,
+      "rejectionReason": null
+    },
+    "review": {
+      "status": "LOCKED",
+      "hashes": {},
+      "approvedBy": null,
+      "approvedAt": null,
+      "rejectionReason": null
+    },
+    "verify": {
+      "status": "LOCKED",
+      "hashes": {},
+      "approvedBy": null,
+      "approvedAt": null,
+      "rejectionReason": null
+    },
+    "pr": {
+      "status": "LOCKED",
+      "hashes": {},
+      "approvedBy": null,
+      "approvedAt": null,
+      "rejectionReason": null
+    }
+  }
+}

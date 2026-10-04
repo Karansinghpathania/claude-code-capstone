@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "deny": [
+      {
+        "tools": ["Bash"],
+        "patterns": [
+          "python orchestrator.py approve*",
+          "python3 orchestrator.py approve*",
+          "python -m orchestrator approve*",
+          "python orchestrator.py reject*",
+          "python3 orchestrator.py reject*",
+          "python -m orchestrator reject*",
+          "python orchestrator.py reopen*",
+          "python3 orchestrator.py reopen*",
+          "python -m orchestrator reopen*"
+        ],
+        "reason": "Only humans may approve, reject or reopen phases. Run `python orchestrator.py status`, tell the human, and let them run the command."
+      },
+      {
+        "tools": ["Edit", "Write"],
+        "patterns": [
+          "sdlc/**",
+          "orchestrator.py",
+          "hooks/**",
+          ".claude/**"
+        ],
+        "reason": "Protected files are the pipeline's control plane; agents must never modify them."
+      }
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "type": "command",
+        "tools": ["Bash", "Edit", "Write"],
+        "command": "python hooks/guard.py",
+        "timeout": 5
+      }
+    ]
+  }
+}
