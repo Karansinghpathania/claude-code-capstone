@@ -3,29 +3,19 @@
 
 Demonstration guard. Not complete shell-security coverage.
 
-CONFIRMED FROM THE OFFICIAL DOCS (read 2026-10-03):
-  VS Code "Local hooks reference" and GitHub "Copilot hooks reference"
-  - Config: .github/hooks/*.json. VS Code Local format (PascalCase event,
-    no "version"): {"hooks": {"PreToolUse": [{"type": "command",
-    "command": "...", "windows": "...", "timeout": 15}]}}. Copilot CLI and
-    cloud agent format: {"version": 1, "hooks": {"preToolUse": [{"type":
-    "command", "bash": "...", "powershell": "...", "timeoutSec": 15}]}};
-    there "command" is a cross-platform fallback.
-  - Event: PreToolUse (Local, PascalCase) / preToolUse (CLI + cloud, camel).
-  - stdin JSON (Local): hook_event_name, session_id, timestamp, cwd,
-    tool_name, tool_input (object), tool_use_id. Copilot camelCase format:
-    toolName, toolArgs (arguments, may be a JSON string).
-  - DENY: exit code 2 (stderr is shown to the model), or exit 0 with stdout
-    {"hookSpecificOutput": {"hookEventName": "PreToolUse",
-    "permissionDecision": "deny", "permissionDecisionReason": "..."}}
-    (Local) / {"permissionDecision": "deny", "permissionDecisionReason":
-    "..."} (Copilot CLI + cloud). ALLOW: exit 0 with empty stdout.
-  - Copilot CLI/cloud: a crashing or non-zero preToolUse command hook
-    denies, but a hook TIMEOUT FAILS OPEN. Keep this script fast.
-NOT CONFIRMED BY THE DOCS: the exact Local tool names and the field names
-inside tool_input (the docs say to inspect the agent debug logs). Every such
-assumption lives in parse_payload() below, so a format change touches only
-that function.
+CONFIRMED FROM THE OFFICIAL DOCS (code.claude.com/docs/en/hooks, read
+2026-10-05):
+  - Config: .claude/settings.json, {"hooks": {"PreToolUse": [{"matcher":
+    "Bash|Edit|...", "hooks": [{"type": "command", "command": "...",
+    "timeout": 5}]}]}}.
+  - stdin JSON: session_id, cwd, hook_event_name, tool_name, tool_use_id and
+    tool_input. Bash: tool_input.command. Edit, Write, MultiEdit:
+    tool_input.file_path. NotebookEdit: tool_input.notebook_path.
+  - DENY: exit code 2; stderr is shown to the model and the tool call never
+    runs. ALLOW: exit 0 with empty stdout (the normal permission flow applies).
+  - Any other non-zero exit code does NOT block, so main() maps every internal
+    error to exit code 2 (fail closed).
+Every assumption about the payload layout lives in parse_payload() below.
 
 R01 choice: "rm -rf <named dir>" (node_modules, __pycache__) is allowed;
 only dangerous targets (/, ~, $HOME, ., .., repo root, .git, bare *) are not.
@@ -38,8 +28,7 @@ import re
 import shlex
 import sys
 from pathlib import Path
-from typing import Any, Callable, NamedTuple
-from urllib.parse import unquote, urlparse
+from typing import Callable, NamedTuple
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -110,43 +99,17 @@ RULES = [
 ]
 
 # ------------------------------------------------------------ payload format
-SHELL_HINTS = ("terminal", "shell", "bash", "powershell")
-NOT_RUNNING = ("output", "last", "selection", "kill")
-WRITE_EXACT = {"edit", "write", "create", "multiedit", "notebookedit",
-               "strreplaceeditor", "strreplace", "applypatch"}
-WRITE_VERBS = ("create", "edit", "write", "replace", "insert", "delete",
-               "rename", "move", "remove", "append", "save", "update", "patch")
-WRITE_NOUNS = ("file", "notebook", "directory", "folder")
-
-
-def _collect_paths(obj: Any, key: str = "") -> list[str]:
-    out: list[str] = []
-    if isinstance(obj, dict):
-        for k, v in obj.items():
-            out += _collect_paths(v, re.sub(r"[^a-z]", "", str(k).lower()))
-    elif isinstance(obj, list):
-        for v in obj:
-            out += _collect_paths(v, key)
-    elif isinstance(obj, str):
-        if "path" in key or key in ("file", "uri", "filename", "target",
-                                    "destination", "files"):
-            if obj.startswith("file:"):  # file:///c%3A/x -> c:/x
-                obj = re.sub(r"^/([a-zA-Z]:)", r"\1",
-                             unquote(urlparse(obj).path))
-            out.append(obj)
-        out += [m.group(1) for m in re.finditer(  # apply_patch bodies
-            r"^\*\*\* (?:(?:Add|Update|Delete) File|Move to): (.+?)\s*$",
-            obj, re.M)]
-    return out
+SHELL_TOOLS = {"bash", "powershell"}
+PATH_FIELDS = {"edit": "file_path", "write": "file_path",
+               "multiedit": "file_path", "notebookedit": "notebook_path"}
 
 
 def parse_payload(raw: str) -> tuple[str, str | None, list[str]]:
     """Return (tool_name, shell_command_or_None, target_paths).
 
-    The ONLY function that knows the hook JSON layout and tool names.
-    Supports both GitHub Copilot and Claude Code formats.
-    Raises MalformedPayload when a tool that could modify things cannot be
-    understood, so that main() fails closed.
+    The ONLY function that knows the Claude Code hook JSON layout and tool
+    names. Raises MalformedPayload when a tool that could modify things cannot
+    be understood, so that main() fails closed. Other tools pass through.
     """
     try:
         data = json.loads(raw)
@@ -154,30 +117,22 @@ def parse_payload(raw: str) -> tuple[str, str | None, list[str]]:
         raise MalformedPayload(f"stdin is not valid JSON ({exc})") from exc
     if not isinstance(data, dict):
         raise MalformedPayload("payload is not a JSON object")
-    # Support both Copilot (camelCase) and Claude Code (snake_case) field names
-    tool = data.get("tool_name", data.get("toolName"))
-    args = data.get("tool_input", data.get("toolArgs"))
+    tool = data.get("tool_name")
     if not isinstance(tool, str) or not tool:
-        raise MalformedPayload("no tool_name / toolName")
-    if isinstance(args, str):  # Copilot CLI and Claude Code may send arguments as a string
-        try:
-            args = json.loads(args)
-        except ValueError:
-            pass
-    key = re.sub(r"[^a-z]", "", tool.lower())
-    if (any(h in key for h in SHELL_HINTS)
-            and not any(n in key for n in NOT_RUNNING)):
-        cmd = args.get("command", args.get("cmd")) \
-            if isinstance(args, dict) else None
+        raise MalformedPayload("no tool_name")
+    args = data.get("tool_input")
+    key = tool.lower()
+    if key in SHELL_TOOLS:
+        cmd = args.get("command") if isinstance(args, dict) else None
         if not isinstance(cmd, str):
             raise MalformedPayload(f"shell tool '{tool}' has no 'command'")
         return tool, cmd, []
-    if key in WRITE_EXACT or (any(v in key for v in WRITE_VERBS)
-                              and any(n in key for n in WRITE_NOUNS)):
-        paths = _collect_paths(args)
-        if not paths:
-            raise MalformedPayload(f"file tool '{tool}' has no known path")
-        return tool, None, paths
+    if key in PATH_FIELDS:
+        path = args.get(PATH_FIELDS[key]) if isinstance(args, dict) else None
+        if not isinstance(path, str) or not path:
+            raise MalformedPayload(
+                f"file tool '{tool}' has no '{PATH_FIELDS[key]}'")
+        return tool, None, [path]
     return tool, None, []
 
 
@@ -490,14 +445,8 @@ def main() -> int:
                      "decide.", "Ask the human to check hooks/guard.py.")
     if msg is None:
         return 0
-    print(json.dumps({
-        "hookSpecificOutput": {"hookEventName": "PreToolUse",
-                               "permissionDecision": "deny",
-                               "permissionDecisionReason": msg},
-        "permissionDecision": "deny", "permissionDecisionReason": msg}))
     print(msg, file=sys.stderr)
-    return 2  # exit 2 denies on every surface documented above
-
+    return 2  # exit code 2 blocks the tool call; stderr goes to the model
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -33,6 +33,10 @@ class OrchestratorTestCase(unittest.TestCase):
         for prot in self.manifest["protected"]:
             if prot.endswith("/"):
                 (self.root / prot).mkdir(parents=True, exist_ok=True)
+            elif not prot.startswith("sdlc/"):
+                # protected single files such as .claude/settings.json
+                (self.root / prot).parent.mkdir(parents=True, exist_ok=True)
+                (self.root / prot).write_text("{}\n")
         (self.root / "orchestrator.py").write_text("# stub\n")
         orc.init_state(self.root)
 

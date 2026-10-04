@@ -1,3 +1,4 @@
+
 # Claude Code Instructions
 
 Python 3.11+, standard library only, tests with `unittest`. Full rules: `docs/CONTRACT.md`.

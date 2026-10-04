@@ -7,18 +7,22 @@ audience. Overview and diagrams: [README.md](../README.md). Rules:
 
 Conventions: commands starting with `python` run in the repository root.
 "Terminal A" is the terminal you keep for yourself; every `approve`, `reject`
-and `reopen` is typed there by a human. Chat steps are typed into Copilot
-Chat in VS Code. Examples use PowerShell; on macOS or Linux use `python3` and
-the matching shell syntax.
+and `reopen` is typed there by a human, never in the Claude Code session.
+"Chat" steps are typed into Claude Code (terminal CLI, Desktop app or VS Code
+extension) started in this folder. Examples use PowerShell; on macOS or Linux
+use `python3` and the matching shell syntax.
 
 ## Before you start
 
-- Python 3.11+, VS Code with GitHub Copilot Chat, this folder opened as the
-  workspace root.
+- Python 3.11+, Claude Code installed (`claude --version`), and Claude Code
+  started with this folder as its working directory (`claude` in the
+  repository root).
 - For step 11 only: this folder is its own git repository (`git rev-parse --show-toplevel`
   prints this folder), `git remote -v` lists `origin`, and `gh auth status`
   succeeds. The `pr` agent refuses to push otherwise.
-- Hooks enabled in VS Code (see [hooks/README.md](../hooks/README.md)).
+- The hook wired in `.claude/settings.json` active (see
+  [hooks/README.md](../hooks/README.md)); the permission `deny` rules in the
+  same file are the first layer and the hook is the second.
 - Read `user_story.md` once so you can answer the clarifying questions.
 
 ## Step 1. Show a clean repository
@@ -44,9 +48,10 @@ exist and are tested; the agents will produce everything else live.
 
 ## Step 2. Run /requirements
 
-Type in Copilot Chat: `/requirements`
+Type in the Claude Code main chat: `/requirements`. This phase runs in the
+main conversation, not as a subagent, so you can answer its questions.
 
-Expected: the agent runs `python orchestrator.py status`, reads
+Expected: Claude runs `python orchestrator.py status`, reads
 `user_story.md` and asks numbered clarifying questions, then waits. Typical
 topics: duplicate titles, empty titles, whether tasks persist between runs,
 how ids are assigned after a delete, exact messages. Answer every question in
@@ -91,7 +96,7 @@ Expected:
 
 ```
 ACTIVE phase: architecture
-Run prompt: /architecture (.github/prompts/architecture.prompt.md)
+Run prompt: /architecture (.claude/commands/architecture.md)
 Must produce: artifacts/architecture.md
 Then run: python orchestrator.py submit architecture
 ```
@@ -101,7 +106,9 @@ after every approval.
 
 ## Step 5. Architecture
 
-Chat: `/architecture`. Review `artifacts/architecture.md`, then in Terminal A:
+Chat: `/architecture` (it hands the work to the subagent in
+`.claude/agents/architecture.md`). Review `artifacts/architecture.md`, then in
+Terminal A:
 `python orchestrator.py approve architecture --by <your-name>` and type
 `architecture`. Run `python orchestrator.py next`.
 
@@ -234,16 +241,17 @@ Run a deterministic demo with the guard directly. A dangerous command
 (PowerShell; on bash use `echo '...' | python3 hooks/guard.py; echo $?`):
 
 ```
-'{"tool_name":"run_in_terminal","tool_input":{"command":"git reset --hard"}}' | python hooks/guard.py; $LASTEXITCODE
+'{"tool_name":"Bash","tool_input":{"command":"git reset --hard"}}' | python hooks/guard.py; $LASTEXITCODE
 ```
 
-Expected: a JSON deny decision on stdout, "BLOCKED by SDLC guard [R03]" with
-Blocked, Rule, Why and Instead lines on stderr, then `2`.
+Expected: nothing on stdout, "BLOCKED by SDLC guard [R03]" with Blocked, Rule,
+Why and Instead lines on stderr, then `2`. In Claude Code, exit code 2 blocks
+the tool call and the stderr text is shown to Claude as the reason.
 
 An agent trying to approve (rule R06):
 
 ```
-'{"tool_name":"run_in_terminal","tool_input":{"command":"python orchestrator.py approve pr --by me"}}' | python hooks/guard.py; $LASTEXITCODE
+'{"tool_name":"Bash","tool_input":{"command":"python orchestrator.py approve pr --by me"}}' | python hooks/guard.py; $LASTEXITCODE
 ```
 
 Expected: "BLOCKED by SDLC guard [R06]", then `2`.
@@ -251,7 +259,7 @@ Expected: "BLOCKED by SDLC guard [R06]", then `2`.
 A write to a file the phase does not own (rule R08):
 
 ```
-'{"tool_name":"create_file","tool_input":{"filePath":"artifacts/architecture.md","content":"x"}}' | python hooks/guard.py; $LASTEXITCODE
+'{"tool_name":"Write","tool_input":{"file_path":"artifacts/architecture.md","content":"x"}}' | python hooks/guard.py; $LASTEXITCODE
 ```
 
 Expected: "BLOCKED by SDLC guard [R08]", then `2`.
@@ -259,16 +267,20 @@ Expected: "BLOCKED by SDLC guard [R08]", then `2`.
 A harmless command is allowed (no output, `0`):
 
 ```
-'{"tool_name":"run_in_terminal","tool_input":{"command":"git status"}}' | python hooks/guard.py; $LASTEXITCODE
+'{"tool_name":"Bash","tool_input":{"command":"git status"}}' | python hooks/guard.py; $LASTEXITCODE
 ```
 
-Optional live variant: ask an agent in chat to run `python orchestrator.py approve pr --by me`.
-With hooks active the tool call is denied; without hooks the orchestrator
-still refuses because there is no interactive terminal. A model may also
-decline on its own, which is why the payload demo above is the reliable one.
+Optional live variant: ask Claude in chat to run `python orchestrator.py approve pr --by me`.
+The permission `deny` rule in `.claude/settings.json` refuses it first (layer
+one); if that rule were missing, the hook denies it (layer two); and without
+either, the orchestrator still refuses because there is no interactive
+terminal. A model may also decline on its own, which is why the payload demo
+above is the reliable one.
 
 Point out: the hook is deterministic and runs before the tool call, so it works
-even if the model is persuaded. It is also demo-grade (see README limitations).
+even if the model is persuaded. Its matcher covers `Bash`, `PowerShell`,
+`Edit`, `Write`, `MultiEdit` and `NotebookEdit`. It is also demo-grade (see
+README limitations).
 
 ## Step 14. Show tamper detection
 
@@ -304,7 +316,7 @@ The same hash check stops `approve` if a file is edited between submit and appro
 
 | Symptom | Likely cause and fix |
 |---------|----------------------|
-| `/requirements` is not offered | The workspace root is not this folder, or prompt files are unavailable for your account or organisation. Check that the folder is open at its root and that Copilot Chat is up to date, then type `/` in the chat box. |
+| `/requirements` is not offered | Claude Code was not started in this folder, so `.claude/commands/` was not loaded. Quit, run `claude` in the repository root, and type `/` to list the commands. |
 | Agent says the phase is not ACTIVE | Run `python orchestrator.py status`; start the prompt of the ACTIVE phase (`python orchestrator.py next` names it). |
 | `submit` refuses with "traceability checks failed" | Read the listed problems: missing FR ids, unchecked `- [ ]` open questions, an undefined id, a missing `Verdict:` line, or a missing code block. The agent must fix the artifact and resubmit. |
 | `approve` says "files changed since submit" | A file changed after submit. Run `python orchestrator.py reject <phase> --reason "<text>"`, have the agent fix it, then resubmit. |
@@ -364,8 +376,9 @@ example-specific part is the code file list of the implementation phase
 (`todo/__init__.py`, `todo/app.py`, `todo/cli.py`, `tests/test_todo.py`). If
 your story needs different code files, a human must change:
 - the `owns` list of the implementation phase in `sdlc/phases.json`;
-- the "Allowed files" section of `.github/agents/implementation.agent.md`
+- the "Allowed files" section of `.claude/agents/implementation.md`
   (`tests/test_config.py` checks that it matches `sdlc/phases.json`);
-- the other agent and prompt files that mention `todo/` as the code folder
-  (search the `.github` folder for `todo/`). They are instructions only, so a
-  stale mention does not break the orchestrator, but it will mislead the agent.
+- the other agent and command files that mention `todo/` as the code folder
+  (search `.claude/agents` and `.claude/commands` for `todo/`). They are
+  instructions only, so a stale mention does not break the orchestrator, but it
+  will mislead the agent.

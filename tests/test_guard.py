@@ -116,12 +116,12 @@ def payload(tool: str, **tool_input: object) -> str:
     return json.dumps({"tool_name": tool, "tool_input": tool_input})
 
 
-def shell(cmd: str) -> str:
-    return payload("run_in_terminal", command=cmd)
+def shell(cmd: str, tool: str = "Bash") -> str:
+    return payload(tool, command=cmd)
 
 
-def edit(path: str, tool: str = "replace_string_in_file") -> str:
-    return payload(tool, filePath=path, oldString="a", newString="b")
+def edit(path: str, tool: str = "Edit") -> str:
+    return payload(tool, file_path=path, old_string="a", new_string="b")
 
 
 class GuardTestCase(unittest.TestCase):
@@ -173,11 +173,25 @@ class CommandTests(GuardTestCase):
                      "Instead:"):
             self.assertIn(part, msg)
 
-    def test_copilot_cli_payload_shape(self) -> None:
-        # camelCase toolName / toolArgs-as-JSON-string (Copilot CLI format)
+    def test_claude_code_payload_shape(self) -> None:
+        # Full Claude Code PreToolUse payload: snake_case tool_name and a
+        # tool_input object, plus the session metadata the harness sends.
+        raw = json.dumps({"session_id": "s1", "cwd": str(self.root),
+                          "hook_event_name": "PreToolUse",
+                          "tool_name": "Bash", "tool_use_id": "t1",
+                          "tool_input": {"command": "git reset --hard"}})
+        self.assertIn("[R03]", self.verdict(raw))
+
+    def test_powershell_tool_is_inspected(self) -> None:
+        msg = self.verdict(shell("git reset --hard", tool="PowerShell"))
+        self.assertIn("[R03]", msg)
+
+    def test_copilot_payload_shape_fails_closed(self) -> None:
+        # The old Copilot CLI shape has no tool_name; it must not be allowed
+        # through silently.
         raw = json.dumps({"toolName": "bash", "toolArgs":
                           json.dumps({"command": "git reset --hard"})})
-        self.assertIn("[R03]", self.verdict(raw))
+        self.assertIn("FAIL-CLOSED", self.verdict(raw))
 
 
 class FileToolTests(GuardTestCase):
@@ -188,20 +202,22 @@ class FileToolTests(GuardTestCase):
             with self.subTest(path=path):
                 self.assertIn("[R07]", self.verdict(edit(path)))
 
-    def test_absolute_and_uri_paths(self) -> None:
+    def test_absolute_paths(self) -> None:
         absolute = str(self.root / "orchestrator.py")
         self.assertIn("[R07]", self.verdict(edit(absolute)))
-        self.assertIn("[R07]", self.verdict(
-            edit((self.root / "orchestrator.py").as_uri())))
 
-    def test_claude_style_write_tool(self) -> None:
+    def test_write_tool(self) -> None:
         raw = payload("Write", file_path="orchestrator.py", content="x")
         self.assertIn("[R07]", self.verdict(raw))
 
-    def test_apply_patch_body_is_parsed(self) -> None:
-        patch = "*** Begin Patch\n*** Update File: orchestrator.py\n@@\n"
-        self.assertIn("[R07]", self.verdict(payload("apply_patch",
-                                                    input=patch)))
+    def test_multiedit_tool(self) -> None:
+        raw = payload("MultiEdit", file_path="orchestrator.py", edits=[])
+        self.assertIn("[R07]", self.verdict(raw))
+
+    def test_notebookedit_tool_uses_notebook_path(self) -> None:
+        raw = payload("NotebookEdit", notebook_path="sdlc/state.json",
+                      new_source="x")
+        self.assertIn("[R07]", self.verdict(raw))
 
     def test_other_phase_blocked_active_allowed(self) -> None:
         # requirements is ACTIVE
@@ -251,11 +267,12 @@ class MalformedPayloadTests(GuardTestCase):
             "json list": "[]",
             "no tool name": "{}",
             "shell tool, string input": json.dumps(
-                {"tool_name": "run_in_terminal", "tool_input": "rm -rf x"}),
-            "shell tool, no input": payload("run_in_terminal"),
-            "shell tool, command not a string": payload(
-                "run_in_terminal", command=42),
-            "file tool, no path": payload("create_file", content="x"),
+                {"tool_name": "Bash", "tool_input": "rm -rf x"}),
+            "shell tool, no input": payload("Bash"),
+            "shell tool, command not a string": payload("Bash", command=42),
+            "file tool, no path": payload("Write", content="x"),
+            "notebook tool, file_path instead of notebook_path": payload(
+                "NotebookEdit", file_path="x.ipynb"),
         }
         for name, raw in cases.items():
             with self.subTest(name):
@@ -265,9 +282,9 @@ class MalformedPayloadTests(GuardTestCase):
 
     def test_harmless_tools_pass_through(self) -> None:
         # read-only tools carry no command or path; unknown ones are allowed
-        for tool in ("read_file", "list_dir", "get_terminal_output"):
+        for tool in ("Read", "Glob", "Grep"):
             with self.subTest(tool):
-                self.assertIsNone(self.verdict(payload(tool, filePath="x")))
+                self.assertIsNone(self.verdict(payload(tool, file_path="x")))
 
 
 class SubprocessTests(GuardTestCase):
@@ -283,11 +300,9 @@ class SubprocessTests(GuardTestCase):
     def test_dangerous_payload_exit_2_with_reason(self) -> None:
         proc = self.run_guard(shell("git push --force origin main"))
         self.assertEqual(proc.returncode, 2)
+        # Claude Code: exit code 2 blocks and stderr is shown to the model.
         self.assertIn(b"[R04]", proc.stderr)
-        out = json.loads(proc.stdout)
-        self.assertEqual(out["hookSpecificOutput"]["permissionDecision"],
-                         "deny")
-        self.assertEqual(out["permissionDecision"], "deny")
+        self.assertEqual(proc.stdout, b"")
 
     def test_safe_payload_exit_0_and_quiet(self) -> None:
         proc = self.run_guard(shell("python orchestrator.py status"))
