@@ -1,40 +1,48 @@
 {
   "permissions": {
     "deny": [
-      {
-        "tools": ["Bash"],
-        "patterns": [
-          "python orchestrator.py approve*",
-          "python3 orchestrator.py approve*",
-          "python -m orchestrator approve*",
-          "python orchestrator.py reject*",
-          "python3 orchestrator.py reject*",
-          "python -m orchestrator reject*",
-          "python orchestrator.py reopen*",
-          "python3 orchestrator.py reopen*",
-          "python -m orchestrator reopen*"
-        ],
-        "reason": "Only humans may approve, reject or reopen phases. Run `python orchestrator.py status`, tell the human, and let them run the command."
-      },
-      {
-        "tools": ["Edit", "Write"],
-        "patterns": [
-          "sdlc/**",
-          "orchestrator.py",
-          "hooks/**",
-          ".claude/**"
-        ],
-        "reason": "Protected files are the pipeline's control plane; agents must never modify them."
-      }
+      "Bash(python orchestrator.py approve:*)",
+      "Bash(python3 orchestrator.py approve:*)",
+      "Bash(py orchestrator.py approve:*)",
+      "Bash(python -m orchestrator approve:*)",
+      "Bash(python orchestrator.py reject:*)",
+      "Bash(python3 orchestrator.py reject:*)",
+      "Bash(py orchestrator.py reject:*)",
+      "Bash(python -m orchestrator reject:*)",
+      "Bash(python orchestrator.py reopen:*)",
+      "Bash(python3 orchestrator.py reopen:*)",
+      "Bash(py orchestrator.py reopen:*)",
+      "Bash(python -m orchestrator reopen:*)",
+      "PowerShell(python orchestrator.py approve:*)",
+      "PowerShell(python orchestrator.py reject:*)",
+      "PowerShell(python orchestrator.py reopen:*)",
+      "Edit(/sdlc/**)",
+      "Edit(/orchestrator.py)",
+      "Edit(/hooks/**)",
+      "Edit(/.claude/settings.json)",
+      "Edit(/.claude/agents/**)",
+      "Edit(/.claude/commands/**)",
+      "Edit(/.claude/skills/**)",
+      "Write(/sdlc/**)",
+      "Write(/orchestrator.py)",
+      "Write(/hooks/**)",
+      "Write(/.claude/settings.json)",
+      "Write(/.claude/agents/**)",
+      "Write(/.claude/commands/**)",
+      "Write(/.claude/skills/**)"
     ]
   },
   "hooks": {
     "PreToolUse": [
       {
-        "type": "command",
-        "tools": ["Bash", "Edit", "Write"],
-        "command": "python hooks/guard.py",
-        "timeout": 5
+        "matcher": "Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python hooks/guard.py",
+            "timeout": 5
+          }
+        ]
       }
     ]
   }

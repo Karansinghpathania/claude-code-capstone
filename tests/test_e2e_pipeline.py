@@ -41,7 +41,7 @@ def content(phase: str, file: str) -> str:
 
 def copy_repo(dst: Path) -> None:
     ignore = shutil.ignore_patterns("__pycache__", "*.pyc")
-    for name in ("hooks", "docs", ".github"):
+    for name in ("hooks", "docs", ".claude"):
         shutil.copytree(REPO / name, dst / name, ignore=ignore)
     shutil.copy2(REPO / "orchestrator.py", dst / "orchestrator.py")
     (dst / "sdlc").mkdir()
@@ -112,18 +112,18 @@ class PipelineCase(unittest.TestCase):
             timeout=30, cwd=self.root)
 
     def run_cmd(self, command: str) -> subprocess.CompletedProcess:
-        return self.guard("run_in_terminal", command=command)
+        return self.guard("Bash", command=command)
 
     def write_file(self, rel: str) -> subprocess.CompletedProcess:
-        return self.guard("create_file", filePath=str(self.root / rel),
+        return self.guard("Write", file_path=str(self.root / rel),
                           content="x")
 
     def assertDenied(self, result: subprocess.CompletedProcess,
                      rule: str) -> None:
+        # Claude Code: exit code 2 blocks; stderr is shown to the model.
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
         self.assertIn(f"[{rule}]", result.stderr)
-        self.assertEqual(json.loads(result.stdout.splitlines()[0])[
-            "hookSpecificOutput"]["permissionDecision"], "deny")
+        self.assertEqual(result.stdout, "")
 
     def assertAllowed(self, result: subprocess.CompletedProcess) -> None:
         self.assertEqual(result.returncode, 0, result.stderr)

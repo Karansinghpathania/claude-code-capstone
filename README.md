@@ -37,7 +37,7 @@ that needs different code files means updating those by hand.
 
 ## 3. What "agentic SDLC" means here
 
-A normal Copilot chat answers one request. Here a story passes through a
+A normal Claude Code chat answers one request. Here a story passes through a
 fixed assembly line. At each station one agent with a narrow job reads the
 approved output of the previous station, writes exactly one document (or, for
 implementation, the code), and stops. A script checks that document, and a
@@ -144,6 +144,16 @@ later phases still have files on disk. Every submit, approve, reject, reopen
 and check, including refusals, is written to `sdlc/audit.log.jsonl`. A state file that is corrupt or out of
 order is rejected with a message telling the human how to restore it.
 
+**Two layers of enforcement.** The first layer is the permission `deny` rules
+in `.claude/settings.json`, which refuse `approve`, `reject` and `reopen`
+commands and edits to `sdlc/`, `orchestrator.py`, `hooks/` and most of
+`.claude/`. The second layer is the `PreToolUse` hook `hooks/guard.py`, wired in
+the same file. It runs before every tool call whose name matches `Bash`,
+`PowerShell`, `Edit`, `Write`, `MultiEdit` or `NotebookEdit`. Exit code 2
+blocks the call and the reason is written to stderr, where Claude sees it; exit
+code 0 with no output lets the normal permission flow continue. The guard
+fails closed: a payload it cannot understand also exits 2.
+
 **Tamper detection.**
 - `approve` recomputes the hashes and refuses if an owned file changed after
   submit.
@@ -197,6 +207,7 @@ claude_code_capstone/
 │   │   ├── implementation.md
 │   │   ├── planning.md
 │   │   ├── pr.md
+│   │   ├── requirements.md
 │   │   ├── review.md
 │   │   └── verify.md
 │   ├── commands/
@@ -218,7 +229,6 @@ claude_code_capstone/
 │   └── settings.json
 ├── .editorconfig
 ├── .gitignore
-├── .github/              (legacy, to be removed after tests pass)
 ├── artifacts/
 │   └── .gitkeep
 ├── docs/
@@ -300,17 +310,17 @@ A blocked command. Pipe a dangerous tool-call payload into the guard, in the
 JSON format it reads (`tool_name` and `tool_input.command`). PowerShell:
 
 ```
-'{"tool_name":"run_in_terminal","tool_input":{"command":"git reset --hard"}}' | python hooks/guard.py; $LASTEXITCODE
+'{"tool_name":"Bash","tool_input":{"command":"git reset --hard"}}' | python hooks/guard.py; $LASTEXITCODE
 ```
 
 bash:
 
 ```
-echo '{"tool_name":"run_in_terminal","tool_input":{"command":"git reset --hard"}}' | python3 hooks/guard.py; echo $?
+echo '{"tool_name":"Bash","tool_input":{"command":"git reset --hard"}}' | python3 hooks/guard.py; echo $?
 ```
 
-Expected: a JSON deny decision on stdout, a readable "BLOCKED by SDLC guard
-[R03]" message on stderr, and exit code 2. Replace the command with
+Expected: nothing on stdout, a readable "BLOCKED by SDLC guard [R03]" message
+on stderr, and exit code 2. Replace the command with
 `git status` to see it allowed (no output, exit code 0). More rules and
 examples are in [hooks/README.md](hooks/README.md).
 
@@ -323,12 +333,17 @@ examples are in [hooks/README.md](hooks/README.md).
   typing the phase id stop accidents and agents, not someone who edits
   `sdlc/state.json` or calls the Python functions directly. Real protection
   is the hook plus pull-request review plus branch protection on the remote.
-- **Hook support differs between Copilot surfaces.** This repo ships the VS Code
-  (Local agent) hook format in `.github/hooks/hooks.json`. Copilot CLI and the
-  cloud agent use a different file format, and on the CLI a hook that times out
-  fails open. The tool names and `tool_input` field names that VS Code sends
-  are not documented, so `hooks/guard.py` matches them heuristically; confirm
-  them in your agent debug logs.
+- **Claude Code hook and subagent behaviour can change between versions.**
+  The hook wiring in `.claude/settings.json` and the payload fields that
+  `hooks/guard.py` reads (`tool_name`, `tool_input.command`,
+  `tool_input.file_path`, `tool_input.notebook_path`) follow the Claude Code
+  documentation at the time of writing. Re-check them after upgrading. Only a
+  blocking exit code of 2 stops a call; any other non-zero exit does not, which
+  is why the guard maps every internal error to 2.
+- **The orchestrator does not read review or verify verdicts.** Submit checks
+  structure and requirement ids only. A review that requests changes, or a
+  verify result of FAIL, does not stop `submit` or `approve`; the human must
+  read `artifacts/review.md` and `artifacts/verify.md` before approving.
 - **Agents cannot be technically prevented from writing outside their file
   with tools alone.** The agent files and prompts only instruct them. The hook
   narrows this by blocking writes to protected and not-ACTIVE files, but only
@@ -343,7 +358,7 @@ examples are in [hooks/README.md](hooks/README.md).
 - **The pipeline run is manual.** Nothing here runs the agents for you.
 - **The end-to-end test simulates the human.** `tests/test_e2e_pipeline.py`
   calls the orchestrator with `confirmed=True` in a temporary copy; it does not
-  exercise the real TTY prompt or any Copilot behaviour, only the state
+  exercise the real TTY prompt or any Claude Code behaviour, only the state
   machine, the hash checks and the guard.
 - **Tests and tools are not hook-protected.** Only protected paths and
   phase-owned files are blocked. `tests/test_config.py`, `tools/audit_repo.py`

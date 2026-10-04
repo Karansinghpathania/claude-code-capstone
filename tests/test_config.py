@@ -186,11 +186,29 @@ class HookWiringTests(unittest.TestCase):
     def test_settings_json_points_to_guard(self) -> None:
         path = REPO / ".claude" / "settings.json"
         data = json.loads(path.read_text("utf-8"))
+        # Claude Code layout: PreToolUse -> [{matcher, hooks: [{type,
+        # command, timeout}]}]
         entries = data.get("hooks", {}).get("PreToolUse", [])
         self.assertTrue(entries)
+        commands = []
         for entry in entries:
-            self.assertIn("hooks/guard.py", entry.get("command", ""))
+            self.assertTrue(entry.get("matcher"), "matcher is required")
+            self.assertTrue(entry.get("hooks"))
+            for hook in entry["hooks"]:
+                self.assertEqual(hook.get("type"), "command")
+                commands.append(hook.get("command", ""))
+        self.assertTrue(all("hooks/guard.py" in c for c in commands))
         self.assertTrue((REPO / "hooks" / "guard.py").is_file())
+
+    def test_guard_matcher_covers_write_and_shell_tools(self) -> None:
+        path = REPO / ".claude" / "settings.json"
+        data = json.loads(path.read_text("utf-8"))
+        for entry in data["hooks"]["PreToolUse"]:
+            tools = set(entry["matcher"].split("|"))
+            for tool in ("Bash", "PowerShell", "Edit", "Write", "MultiEdit",
+                         "NotebookEdit"):
+                with self.subTest(tool=tool):
+                    self.assertIn(tool, tools)
 
 
 if __name__ == "__main__":
